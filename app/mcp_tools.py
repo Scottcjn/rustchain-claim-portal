@@ -1,0 +1,283 @@
+# Portions of this file are adapted from MergeWork (Copyright (c) 2026
+# MergeWork contributors, MIT). See NOTICE and THIRD_PARTY_LICENSES/.
+# Original source: github.com/ramimbo/mergework/app/mcp_tools.py
+# Adapted: 2026-05-29 — FastAPI -> Flask, EXECUTE tools dropped per
+# upstream guidance (ramimbo/mergework#571: "read-only MCP/status/
+# reconciliation surfaces are a safer first step"). Only read tools
+# included in this Phase 2 port. No mint, no transfer, no link via MCP.
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any
+
+from flask import current_app
+
+from .accounts import GITHUB_LOGIN_RE, balance_amount_from_response
+from .chain_client import get_balance
+from .db import get_db, get_github_wallet_link
+from .wallets import WalletError, normalize_wallet_address
+
+
+class MCPInvalidArguments(ValueError):
+    pass
+
+
+MCP_TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "portal.balance.get",
+        "description": "Look up RTC balance for a wallet, github:login, or plain miner id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "identifier": {
+                    "type": "string",
+                    "description": "RTC address, github:login, or plain miner id.",
+                }
+            },
+            "required": ["identifier"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "portal.wallet_link.lookup",
+        "description": "Look up the RTC wallet currently linked to a GitHub login.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "github_login": {
+                    "type": "string",
+                    "description": "GitHub login to inspect.",
+                }
+            },
+            "required": ["github_login"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "portal.claim_history",
+        "description": (
+            "List recent claim attempts for a GitHub login, or for the current "
+            "authenticated user when github_login is omitted."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "github_login": {
+                    "type": ["string", "null"],
+                    "description": "Optional GitHub login override.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "default": 20,
+                    "description": "Maximum number of claims to return.",
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "portal.reserved.get",
+        "description": "Look up the RTC balance reserved in a github:<login> placeholder account.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "github_login": {
+                    "type": "string",
+                    "description": "GitHub login whose reserved balance should be queried.",
+                }
+            },
+            "required": ["github_login"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "portal.health",
+        "description": "Return basic portal status and configured node information.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+]
+
+
+def _require_allowed_fields(args: dict[str, Any], allowed: set[str]) -> None:
+    unknown_fields = sorted(set(args) - allowed)
+    if unknown_fields:
+        raise MCPInvalidArguments(
+            f"unexpected argument(s): {', '.join(unknown_fields)}"
+        )
+
+
+def _require_string(args: dict[str, Any], field: str) -> str:
+    value = args.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise MCPInvalidArguments(f"{field} must be a non-empty string")
+    return value.strip()
+
+
+def _optional_string(args: dict[str, Any], field: str) -> str | None:
+    value = args.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise MCPInvalidArguments(f"{field} must be a string")
+    stripped = value.strip()
+    return stripped or None
+
+
+def _positive_int(args: dict[str, Any], field: str, *, default: int) -> int:
+    raw_value = args.get(field, default)
+    if isinstance(raw_value, bool):
+        raise MCPInvalidArguments(f"{field} must be an integer")
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise MCPInvalidArguments(f"{field} must be an integer") from exc
+    if value <= 0:
+        raise MCPInvalidArguments(f"{field} must be greater than zero")
+    if value > 100:
+        raise MCPInvalidArguments(f"{field} must be at most 100")
+    return value
+
+
+def _normalize_github_login(github_login: str) -> str:
+    normalized = github_login.strip().lower()
+    if not GITHUB_LOGIN_RE.fullmatch(normalized):
+        raise MCPInvalidArguments("github_login must be a valid GitHub login")
+    return normalized
+
+
+def _normalize_balance_identifier(identifier: str) -> str:
+    clean = identifier.strip()
+    if not clean:
+        raise MCPInvalidArguments("identifier must not be empty")
+    if any(ord(char) < 32 or 127 <= ord(char) < 160 for char in clean):
+        raise MCPInvalidArguments("identifier must not contain control characters")
+
+    lower = clean.lower()
+    if lower.startswith("github:"):
+        github_login = _normalize_github_login(clean.split(":", 1)[1])
+        return f"github:{github_login}"
+    if lower.startswith("rtc"):
+        try:
+            return normalize_wallet_address(clean)
+        except WalletError as exc:
+            raise MCPInvalidArguments(str(exc)) from exc
+    return clean
+
+
+def _amount_rtc(payload: dict[str, Any]) -> float:
+    amount = balance_amount_from_response(payload)
+    return float(Decimal(str(amount)))
+
+
+def _tool_balance_get(args: dict[str, Any]) -> dict[str, Any]:
+    _require_allowed_fields(args, {"identifier"})
+    identifier = _normalize_balance_identifier(_require_string(args, "identifier"))
+    return {
+        "amount_rtc": _amount_rtc(get_balance(identifier)),
+        "miner_id": identifier,
+        "source": "chain",
+    }
+
+
+def _tool_wallet_link_lookup(args: dict[str, Any]) -> dict[str, Any]:
+    _require_allowed_fields(args, {"github_login"})
+    github_login = _normalize_github_login(_require_string(args, "github_login"))
+    row = get_github_wallet_link(github_login)
+    if row is None:
+        return {"linked": False, "rtc_address": None, "linked_at": None}
+    return {
+        "linked": True,
+        "rtc_address": str(row["rtc_address"]),
+        "linked_at": int(row["linked_at"]),
+    }
+
+
+def _tool_claim_history(
+    args: dict[str, Any], *, session_github_login: str | None
+) -> dict[str, Any]:
+    _require_allowed_fields(args, {"github_login", "limit"})
+    github_login = _optional_string(args, "github_login")
+    if github_login is None:
+        github_login = session_github_login
+    if github_login is None:
+        raise MCPInvalidArguments(
+            "github_login is required when no authenticated session is present"
+        )
+    github_login = _normalize_github_login(github_login)
+    limit = _positive_int(args, "limit", default=20)
+
+    database = get_db()
+    total_row = database.execute(
+        "SELECT COUNT(*) AS total FROM claim_log WHERE github_login = ?",
+        (github_login,),
+    ).fetchone()
+    claim_rows = database.execute(
+        """
+        SELECT id, github_login, amount_rtc, tx_id, status, created_at
+        FROM claim_log
+        WHERE github_login = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (github_login, limit),
+    ).fetchall()
+
+    claims = [
+        {
+            "id": int(row["id"]),
+            "github_login": str(row["github_login"]),
+            "amount_rtc": float(row["amount_rtc"]),
+            "tx_id": None if row["tx_id"] is None else str(row["tx_id"]),
+            "status": str(row["status"]),
+            "created_at": int(row["created_at"]),
+        }
+        for row in claim_rows
+    ]
+    return {"claims": claims, "total": int(total_row["total"] if total_row else 0)}
+
+
+def _tool_reserved_get(args: dict[str, Any]) -> dict[str, Any]:
+    _require_allowed_fields(args, {"github_login"})
+    github_login = _normalize_github_login(_require_string(args, "github_login"))
+    github_account = f"github:{github_login}"
+    return {
+        "amount_rtc": _amount_rtc(get_balance(github_account)),
+        "github_account": github_account,
+    }
+
+
+def _tool_health(args: dict[str, Any]) -> dict[str, Any]:
+    _require_allowed_fields(args, set())
+    return {
+        "ok": True,
+        "node_url": str(current_app.config.get("RC_NODE_URL", "")),
+        "version": str(current_app.config.get("PORTAL_VERSION", "unknown")),
+    }
+
+
+def call_mcp_tool(
+    name: str,
+    args: dict[str, Any],
+    *,
+    session_github_login: str | None = None,
+) -> dict[str, Any]:
+    if name == "portal.balance.get":
+        return _tool_balance_get(args)
+    if name == "portal.wallet_link.lookup":
+        return _tool_wallet_link_lookup(args)
+    if name == "portal.claim_history":
+        return _tool_claim_history(args, session_github_login=session_github_login)
+    if name == "portal.reserved.get":
+        return _tool_reserved_get(args)
+    if name == "portal.health":
+        return _tool_health(args)
+    raise MCPInvalidArguments(f"unknown tool: {name}")
+
+
+__all__ = ["MCPInvalidArguments", "MCP_TOOLS", "call_mcp_tool"]
