@@ -7,11 +7,12 @@ import pytest
 from app import create_app
 from app.auth import signed_value
 from app.db import create_claim_log, upsert_github_wallet_link
-from app.mcp import create_blueprint as create_mcp_blueprint
 
 
 @pytest.fixture
 def app(tmp_path: Any):
+    # MCP blueprint is now registered automatically by create_app(); no
+    # manual registration needed here.
     app = create_app(
         {
             "TESTING": True,
@@ -23,7 +24,6 @@ def app(tmp_path: Any):
             "PORTAL_VERSION": "phase2-test",
         }
     )
-    app.register_blueprint(create_mcp_blueprint())
 
     with app.app_context():
         upsert_github_wallet_link(
