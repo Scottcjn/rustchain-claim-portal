@@ -15,8 +15,11 @@ from flask import current_app
 from .accounts import GITHUB_LOGIN_RE, balance_amount_from_response
 from .chain_client import (
     get_balance,
+    get_bridge_reconciliation_by_epoch,
+    get_bridge_reconciliation_latest,
     get_bridge_state,
     list_bridge_events,
+    list_bridge_reconciliation_recent,
     list_bridge_transfers_recent,
 )
 from .db import get_db, get_github_wallet_link
@@ -184,6 +187,58 @@ MCP_TOOLS: list[dict[str, Any]] = [
                     "description": "Optional direction filter.",
                     "enum": ["deposit", "withdraw"],
                 },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "bridge.reconciliation.latest",
+        "description": (
+            "Most recent bridge reconciliation snapshot (federation Layer "
+            "2). Each snapshot is an epoch-pinned attestation containing "
+            "bridged_supply_committed, state_hash, and per-status totals."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "bridge.reconciliation.by_epoch",
+        "description": (
+            "Reconciliation snapshot for a specific epoch, if one exists. "
+            "Returns snapshot=null if no snapshot has been recorded for "
+            "that epoch."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "epoch": {
+                    "type": "integer",
+                    "description": "Non-negative epoch number.",
+                    "minimum": 0,
+                }
+            },
+            "required": ["epoch"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "bridge.reconciliation.recent",
+        "description": (
+            "Recent N reconciliation snapshots, ordered by epoch descending. "
+            "Default 20, max 200."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max snapshots to return (1-200, default 20).",
+                    "minimum": 1,
+                    "maximum": 200,
+                }
             },
             "additionalProperties": False,
         },
@@ -415,6 +470,25 @@ def _tool_bridge_transfers_recent(args: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _tool_bridge_reconciliation_latest(args: dict[str, Any]) -> dict[str, Any]:
+    _require_allowed_fields(args, set())
+    return get_bridge_reconciliation_latest()
+
+
+def _tool_bridge_reconciliation_by_epoch(args: dict[str, Any]) -> dict[str, Any]:
+    _require_allowed_fields(args, {"epoch"})
+    if "epoch" not in args:
+        raise MCPInvalidArguments("epoch is required")
+    epoch = _bridge_int_arg(args, "epoch", default=0, minimum=0, maximum=10**12)
+    return get_bridge_reconciliation_by_epoch(epoch)
+
+
+def _tool_bridge_reconciliation_recent(args: dict[str, Any]) -> dict[str, Any]:
+    _require_allowed_fields(args, {"limit"})
+    limit = _bridge_int_arg(args, "limit", default=20, minimum=1, maximum=200)
+    return list_bridge_reconciliation_recent(limit=limit)
+
+
 def call_mcp_tool(
     name: str,
     args: dict[str, Any],
@@ -437,6 +511,12 @@ def call_mcp_tool(
         return _tool_bridge_events_list(args)
     if name == "bridge.transfers.recent":
         return _tool_bridge_transfers_recent(args)
+    if name == "bridge.reconciliation.latest":
+        return _tool_bridge_reconciliation_latest(args)
+    if name == "bridge.reconciliation.by_epoch":
+        return _tool_bridge_reconciliation_by_epoch(args)
+    if name == "bridge.reconciliation.recent":
+        return _tool_bridge_reconciliation_recent(args)
     raise MCPInvalidArguments(f"unknown tool: {name}")
 
 

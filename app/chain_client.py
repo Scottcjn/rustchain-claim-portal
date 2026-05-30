@@ -122,6 +122,23 @@ def list_bridge_transfers_recent(
     return _request_public("GET", "/bridge/transfers/recent", params=params)
 
 
+def get_bridge_reconciliation_latest() -> dict[str, Any]:
+    """Most recent bridge reconciliation snapshot (Layer 2)."""
+    return _request_public("GET", "/bridge/reconciliation/latest")
+
+
+def get_bridge_reconciliation_by_epoch(epoch: int) -> dict[str, Any]:
+    """Bridge reconciliation snapshot for a specific epoch (Layer 2)."""
+    return _request_public("GET", f"/bridge/reconciliation/by_epoch/{int(epoch)}")
+
+
+def list_bridge_reconciliation_recent(limit: int = 20) -> dict[str, Any]:
+    """Most recent N reconciliation snapshots (Layer 2)."""
+    return _request_public(
+        "GET", "/bridge/reconciliation/recent", params={"limit": limit}
+    )
+
+
 def transfer(
     from_miner: str,
     to_miner: str,

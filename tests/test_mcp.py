@@ -54,6 +54,9 @@ def test_tools_list_exposes_only_read_only_phase_2_tools(app: Any) -> None:
         "bridge.state.get",
         "bridge.events.list",
         "bridge.transfers.recent",
+        "bridge.reconciliation.latest",
+        "bridge.reconciliation.by_epoch",
+        "bridge.reconciliation.recent",
     ]
 
 
@@ -218,3 +221,143 @@ def test_bridge_transfers_recent_rejects_bad_status(app: Any) -> None:
         for c in body.get("result", {}).get("content", [])
     )
     assert has_error
+
+
+def test_bridge_reconciliation_latest_calls_chain_client(monkeypatch, app: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_latest() -> dict[str, Any]:
+        captured["called"] = True
+        return {"ok": True, "snapshot": {"epoch": 42, "state_hash": "a" * 64}}
+
+    import app.chain_client as cc
+    import app.mcp_tools as mt
+
+    monkeypatch.setattr(cc, "get_bridge_reconciliation_latest", fake_latest)
+    monkeypatch.setattr(mt, "get_bridge_reconciliation_latest", fake_latest)
+
+    client = app.test_client()
+    resp = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 200,
+            "method": "tools/call",
+            "params": {"name": "bridge.reconciliation.latest", "arguments": {}},
+        },
+    )
+    assert resp.status_code == 200
+    assert captured.get("called") is True
+
+
+def test_bridge_reconciliation_by_epoch_requires_epoch(app: Any) -> None:
+    client = app.test_client()
+    resp = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 201,
+            "method": "tools/call",
+            "params": {"name": "bridge.reconciliation.by_epoch", "arguments": {}},
+        },
+    )
+    body = resp.get_json()
+    has_error = "error" in body or any(
+        "epoch is required" in str(c) or "epoch" in str(c)
+        for c in body.get("result", {}).get("content", [])
+    )
+    assert has_error
+
+
+def test_bridge_reconciliation_by_epoch_rejects_negative(monkeypatch, app: Any) -> None:
+    def fake_by_epoch(epoch: int) -> dict[str, Any]:
+        return {"ok": True, "snapshot": {"epoch": epoch}}
+
+    import app.chain_client as cc
+    import app.mcp_tools as mt
+
+    monkeypatch.setattr(cc, "get_bridge_reconciliation_by_epoch", fake_by_epoch)
+    monkeypatch.setattr(mt, "get_bridge_reconciliation_by_epoch", fake_by_epoch)
+
+    client = app.test_client()
+    resp = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 202,
+            "method": "tools/call",
+            "params": {
+                "name": "bridge.reconciliation.by_epoch",
+                "arguments": {"epoch": -5},
+            },
+        },
+    )
+    body = resp.get_json()
+    has_error = "error" in body or any(
+        ">= 0" in str(c) or "must be" in str(c)
+        for c in body.get("result", {}).get("content", [])
+    )
+    assert has_error
+
+
+def test_bridge_reconciliation_recent_default_limit(monkeypatch, app: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_recent(limit: int) -> dict[str, Any]:
+        captured["limit"] = limit
+        return {"ok": True, "count": 0, "limit": limit, "snapshots": []}
+
+    import app.chain_client as cc
+    import app.mcp_tools as mt
+
+    monkeypatch.setattr(cc, "list_bridge_reconciliation_recent", fake_recent)
+    monkeypatch.setattr(mt, "list_bridge_reconciliation_recent", fake_recent)
+
+    client = app.test_client()
+    resp = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 203,
+            "method": "tools/call",
+            "params": {"name": "bridge.reconciliation.recent", "arguments": {}},
+        },
+    )
+    assert resp.status_code == 200
+    assert captured.get("limit") == 20  # default
+
+
+def test_bridge_reconciliation_recent_limit_clamp(monkeypatch, app: Any) -> None:
+    """limit > 200 should be rejected by validation BEFORE hitting the client."""
+    import app.chain_client as cc
+    import app.mcp_tools as mt
+
+    called: dict[str, Any] = {}
+
+    def fake_recent(limit: int) -> dict[str, Any]:
+        called["limit"] = limit
+        return {"ok": True}
+
+    monkeypatch.setattr(cc, "list_bridge_reconciliation_recent", fake_recent)
+    monkeypatch.setattr(mt, "list_bridge_reconciliation_recent", fake_recent)
+
+    client = app.test_client()
+    resp = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 204,
+            "method": "tools/call",
+            "params": {
+                "name": "bridge.reconciliation.recent",
+                "arguments": {"limit": 5000},
+            },
+        },
+    )
+    body = resp.get_json()
+    # Validation rejects at MCP layer; chain_client never called.
+    has_error = "error" in body or any(
+        "<= 200" in str(c) for c in body.get("result", {}).get("content", [])
+    )
+    assert has_error
+    assert "limit" not in called  # client was NOT called with bad value
