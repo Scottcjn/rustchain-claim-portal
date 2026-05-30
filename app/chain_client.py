@@ -74,8 +74,52 @@ def _request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
     return _handle_response(response)
 
 
+def _request_public(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    """Read-only request that does NOT send the admin key.
+
+    Used for the federation bridge.* endpoints which are explicitly public
+    (no auth required on Node 1). Partial fulfillment of tracking issue
+    Scottcjn/Rustchain#6624 — narrowly scoped to bridge federation reads.
+    """
+    with requests.Session() as session:
+        response = session.request(
+            method,
+            f"{_base_url()}{path}",
+            timeout=30,
+            verify=False,
+            **kwargs,
+        )
+    return _handle_response(response)
+
+
 def get_balance(miner_id: str) -> dict[str, Any]:
     return _request("GET", "/wallet/balance", params={"miner": miner_id})
+
+
+def get_bridge_state() -> dict[str, Any]:
+    """Aggregate bridge state. Public read, no admin key."""
+    return _request_public("GET", "/bridge/state")
+
+
+def list_bridge_events(limit: int = 50, window_seconds: int = 86400) -> dict[str, Any]:
+    """Recent bridge state-change events. Public read."""
+    params = {"limit": limit, "window_seconds": window_seconds}
+    return _request_public("GET", "/bridge/events", params=params)
+
+
+def list_bridge_transfers_recent(
+    limit: int = 50,
+    offset: int = 0,
+    status: str | None = None,
+    direction: str | None = None,
+) -> dict[str, Any]:
+    """Paginated public list of bridge transfers."""
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    if status:
+        params["status"] = status
+    if direction:
+        params["direction"] = direction
+    return _request_public("GET", "/bridge/transfers/recent", params=params)
 
 
 def transfer(

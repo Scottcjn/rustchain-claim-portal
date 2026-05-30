@@ -51,6 +51,9 @@ def test_tools_list_exposes_only_read_only_phase_2_tools(app: Any) -> None:
         "portal.claim_history",
         "portal.reserved.get",
         "portal.health",
+        "bridge.state.get",
+        "bridge.events.list",
+        "bridge.transfers.recent",
     ]
 
 
@@ -163,3 +166,55 @@ def test_wallet_link_lookup_and_claim_history_support_db_reads(app: Any) -> None
     assert isinstance(
         history_payload["result"]["structuredContent"]["claims"][0]["created_at"], int
     )
+
+
+def test_bridge_state_tool_calls_chain_client(monkeypatch, app: Any) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_get_bridge_state() -> dict[str, Any]:
+        captured["called"] = True
+        return {"ok": True, "state": {"locked_in_rtc": 42.0}}
+
+    import app.chain_client as cc
+    import app.mcp_tools as mt
+
+    monkeypatch.setattr(cc, "get_bridge_state", fake_get_bridge_state)
+    monkeypatch.setattr(mt, "get_bridge_state", fake_get_bridge_state)
+
+    client = app.test_client()
+    resp = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 99,
+            "method": "tools/call",
+            "params": {"name": "bridge.state.get", "arguments": {}},
+        },
+    )
+    assert resp.status_code == 200
+    assert captured.get("called") is True
+
+
+def test_bridge_transfers_recent_rejects_bad_status(app: Any) -> None:
+    client = app.test_client()
+    resp = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 100,
+            "method": "tools/call",
+            "params": {
+                "name": "bridge.transfers.recent",
+                "arguments": {"status": "__not_a_status__"},
+            },
+        },
+    )
+    # tools/call returns 200 with an error payload in the result content
+    assert resp.status_code == 200
+    body = resp.get_json()
+    # Either error key OR content array describing the validation failure
+    has_error = "error" in body or any(
+        "must be one of" in str(c)
+        for c in body.get("result", {}).get("content", [])
+    )
+    assert has_error

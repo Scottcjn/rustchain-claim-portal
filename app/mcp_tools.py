@@ -13,7 +13,12 @@ from typing import Any
 from flask import current_app
 
 from .accounts import GITHUB_LOGIN_RE, balance_amount_from_response
-from .chain_client import get_balance
+from .chain_client import (
+    get_balance,
+    get_bridge_state,
+    list_bridge_events,
+    list_bridge_transfers_recent,
+)
 from .db import get_db, get_github_wallet_link
 from .wallets import WalletError, normalize_wallet_address
 
@@ -98,6 +103,88 @@ MCP_TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "bridge.state.get",
+        "description": (
+            "Aggregate bridge state on the RustChain side: locked_in / "
+            "completed_in / voided_in totals + by_status + by_direction "
+            "breakdowns + last_event_at. Matches FEDERATION_DESIGN_NOTE "
+            "section 3.2 invariant shape. Public read, no auth."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "bridge.events.list",
+        "description": (
+            "Recent bridge state-change events with public-safe fields only. "
+            "Sensitive fields (addresses, external_tx_hash, internal ids) are "
+            "intentionally omitted. Window default 24h, max 30d. Limit 1-200."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max events to return (1-200, default 50).",
+                    "minimum": 1,
+                    "maximum": 200,
+                },
+                "window_seconds": {
+                    "type": "integer",
+                    "description": "Look-back window in seconds (default 86400).",
+                    "minimum": 0,
+                    "maximum": 30 * 86400,
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "bridge.transfers.recent",
+        "description": (
+            "Paginated public list of bridge transfers. Same public-safe "
+            "field set as bridge.events.list, plus optional status and "
+            "direction filters and explicit offset for pagination."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max transfers per page (1-200, default 50).",
+                    "minimum": 1,
+                    "maximum": 200,
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Page offset (>= 0, default 0).",
+                    "minimum": 0,
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Optional status filter.",
+                    "enum": [
+                        "pending",
+                        "locked",
+                        "confirming",
+                        "completed",
+                        "voided",
+                        "failed",
+                    ],
+                },
+                "direction": {
+                    "type": "string",
+                    "description": "Optional direction filter.",
+                    "enum": ["deposit", "withdraw"],
+                },
+            },
             "additionalProperties": False,
         },
     },
@@ -261,6 +348,73 @@ def _tool_health(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _tool_bridge_state_get(args: dict[str, Any]) -> dict[str, Any]:
+    _require_allowed_fields(args, set())
+    return get_bridge_state()
+
+
+def _bridge_int_arg(
+    args: dict[str, Any],
+    field: str,
+    *,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    raw_value = args.get(field, default)
+    if isinstance(raw_value, bool):
+        raise MCPInvalidArguments(f"{field} must be an integer")
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise MCPInvalidArguments(f"{field} must be an integer") from exc
+    if value < minimum:
+        raise MCPInvalidArguments(f"{field} must be >= {minimum}")
+    if value > maximum:
+        raise MCPInvalidArguments(f"{field} must be <= {maximum}")
+    return value
+
+
+def _tool_bridge_events_list(args: dict[str, Any]) -> dict[str, Any]:
+    _require_allowed_fields(args, {"limit", "window_seconds"})
+    limit = _bridge_int_arg(args, "limit", default=50, minimum=1, maximum=200)
+    window_seconds = _bridge_int_arg(
+        args, "window_seconds", default=86400, minimum=0, maximum=30 * 86400
+    )
+    return list_bridge_events(limit=limit, window_seconds=window_seconds)
+
+
+_BRIDGE_STATUS_VALUES = {
+    "pending",
+    "locked",
+    "confirming",
+    "completed",
+    "voided",
+    "failed",
+}
+_BRIDGE_DIRECTION_VALUES = {"deposit", "withdraw"}
+
+
+def _tool_bridge_transfers_recent(args: dict[str, Any]) -> dict[str, Any]:
+    _require_allowed_fields(args, {"limit", "offset", "status", "direction"})
+    limit = _bridge_int_arg(args, "limit", default=50, minimum=1, maximum=200)
+    offset = _bridge_int_arg(args, "offset", default=0, minimum=0, maximum=10**9)
+
+    status = _optional_string(args, "status")
+    if status is not None and status not in _BRIDGE_STATUS_VALUES:
+        raise MCPInvalidArguments(
+            f"status must be one of: {sorted(_BRIDGE_STATUS_VALUES)}"
+        )
+    direction = _optional_string(args, "direction")
+    if direction is not None and direction not in _BRIDGE_DIRECTION_VALUES:
+        raise MCPInvalidArguments(
+            f"direction must be one of: {sorted(_BRIDGE_DIRECTION_VALUES)}"
+        )
+    return list_bridge_transfers_recent(
+        limit=limit, offset=offset, status=status, direction=direction
+    )
+
+
 def call_mcp_tool(
     name: str,
     args: dict[str, Any],
@@ -277,6 +431,12 @@ def call_mcp_tool(
         return _tool_reserved_get(args)
     if name == "portal.health":
         return _tool_health(args)
+    if name == "bridge.state.get":
+        return _tool_bridge_state_get(args)
+    if name == "bridge.events.list":
+        return _tool_bridge_events_list(args)
+    if name == "bridge.transfers.recent":
+        return _tool_bridge_transfers_recent(args)
     raise MCPInvalidArguments(f"unknown tool: {name}")
 
 
