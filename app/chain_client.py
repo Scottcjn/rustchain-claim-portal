@@ -40,7 +40,7 @@ def _base_url() -> str:
 def _headers() -> dict[str, str]:
     admin_key = str(current_app.config.get("RC_ADMIN_KEY", ""))
     if not admin_key:
-        raise ChainClientError("RC_ADMIN_KEY is not configured")
+        raise ChainClientError("RC_ADMIN_KEY required for write operations")
     return {"X-Admin-Key": admin_key}
 
 
@@ -77,9 +77,8 @@ def _request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
 def _request_public(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
     """Read-only request that does NOT send the admin key.
 
-    Used for the federation bridge.* endpoints which are explicitly public
-    (no auth required on Node 1). Partial fulfillment of tracking issue
-    Scottcjn/Rustchain#6624 — narrowly scoped to bridge federation reads.
+    Used for Node 1 endpoints that are explicitly public, including
+    wallet balance reads and federation bridge read endpoints.
     """
     with requests.Session() as session:
         response = session.request(
@@ -93,7 +92,7 @@ def _request_public(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
 
 
 def get_balance(miner_id: str) -> dict[str, Any]:
-    return _request("GET", "/wallet/balance", params={"miner": miner_id})
+    return _request_public("GET", "/wallet/balance", params={"miner_id": miner_id})
 
 
 def get_bridge_state() -> dict[str, Any]:
