@@ -86,9 +86,73 @@ def test_get_balance_and_void_transfer_use_expected_paths(
 
     assert calls[0]["method"] == "GET"
     assert calls[0]["url"] == "https://node-1.local/wallet/balance"
-    assert calls[0]["params"] == {"miner": "github:alice"}
+    assert "headers" not in calls[0]
+    assert calls[0]["params"] == {"miner_id": "github:alice"}
     assert calls[1]["method"] == "POST"
     assert calls[1]["url"] == "https://node-1.local/wallet/transfer/void/tx-99"
+    assert calls[1]["headers"] == {"X-Admin-Key": "super-secret-admin-key"}
+
+
+def test_get_balance_works_without_admin_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_request(self: Any, method: str, url: str, **kwargs: Any) -> FakeResponse:
+        calls.append({"method": method, "url": url, **kwargs})
+        return FakeResponse({"amount_rtc": 3.5})
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    app = create_app(
+        {
+            "TESTING": True,
+            "RC_NODE_URL": "https://node-1.local",
+            "RC_ADMIN_KEY": "",
+            "DATABASE_PATH": "/tmp/rcp/test-chain-client-readonly.sqlite3",
+            "COOKIE_SECRET": "x" * 32,
+            "COOKIE_SECURE": False,
+        }
+    )
+
+    with app.app_context():
+        result = get_balance("github:alice")
+
+    assert result == {"amount_rtc": 3.5}
+    assert calls == [
+        {
+            "method": "GET",
+            "url": "https://node-1.local/wallet/balance",
+            "timeout": 30,
+            "verify": False,
+            "params": {"miner_id": "github:alice"},
+        }
+    ]
+
+
+def test_write_methods_require_admin_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_request(self: Any, method: str, url: str, **kwargs: Any) -> FakeResponse:
+        raise AssertionError("write request should fail before network call")
+
+    monkeypatch.setattr("requests.Session.request", fake_request)
+    app = create_app(
+        {
+            "TESTING": True,
+            "RC_NODE_URL": "https://node-1.local",
+            "RC_ADMIN_KEY": "",
+            "DATABASE_PATH": "/tmp/rcp/test-chain-client-write-no-key.sqlite3",
+            "COOKIE_SECRET": "x" * 32,
+            "COOKIE_SECURE": False,
+        }
+    )
+
+    with app.app_context():
+        with pytest.raises(
+            ChainClientError,
+            match="RC_ADMIN_KEY required for write operations",
+        ):
+            transfer("treasury", "github:alice", 1)
 
 
 def test_non_2xx_responses_raise_chain_client_error(
