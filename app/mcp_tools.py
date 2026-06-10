@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 # Portions of this file are adapted from MergeWork (Copyright (c) 2026
 # MergeWork contributors, MIT). See NOTICE and THIRD_PARTY_LICENSES/.
 # Original source: github.com/ramimbo/mergework/app/mcp_tools.py

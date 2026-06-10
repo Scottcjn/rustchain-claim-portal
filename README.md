@@ -1,3 +1,5 @@
+[![BCOS Certified](https://img.shields.io/badge/BCOS-Certified-brightgreen?style=flat)](BCOS.md)
+
 # rustchain-claim-portal
 
 GitHub-OAuth wallet-linking + `github:*` lazy-pay claim surface for the
