@@ -1,0 +1,99 @@
+# rustchain-claim-portal
+
+> Answer-first summary: rustchain-claim-portal is a scaffolded RustChain
+> claim/pay portal for linking GitHub identities to `RTC...` wallets, checking
+> `github:<login>` lazy-pay placeholder balances, and exposing claim-oriented
+> human and MCP surfaces while RustChain Node 1 remains the authoritative
+> ledger.
+
+## Canonical URLs
+
+- Repository: https://github.com/Scottcjn/rustchain-claim-portal
+- RustChain: https://github.com/Scottcjn/Rustchain
+- RustChain bounty index: https://github.com/Scottcjn/rustchain-bounties
+- Upstream inspiration/derived codebase: https://github.com/ramimbo/mergework
+
+## Project summary
+
+`rustchain-claim-portal` is a Flask-based scaffold for the RustChain bounty
+claim flow. It is designed to connect a GitHub OAuth login to a contributor's
+`RTC...` wallet, show balances reserved under `github:<login>` lazy-pay
+placeholder accounts, and support claim-related interactions for humans and AI
+agents. The portal is a GitHub identity oracle and claim/pay surface; it does
+not replace RustChain Node 1 as the ledger and does not mint RTC.
+
+The repository is derived from MergeWork with MIT attribution. The RustChain
+adaptation preserves the GitHub OAuth wallet-linking pattern, `/me`-style claim
+surface, `github:<login>` lazy-pay placeholder idea, and MCP-over-HTTP shape,
+while dropping MergeWork's local ledger and mint-on-label model.
+
+## Key entities
+
+- GitHub OAuth login: contributor identity used to look up and authorize a
+  wallet link.
+- `RTC...` wallet: RustChain wallet address format accepted by the portal.
+- `github:<login>` account: lazy-pay placeholder account on RustChain Node 1
+  used when a bounty was paid before a wallet was linked.
+- RustChain Node 1: authoritative source for balances, transfers, and issuance.
+- Portal SQLite: local identity mapping, signed proof records, and claim log;
+  not an authoritative ledger.
+- MCP tools: agent-readable surfaces for balances, wallet-link lookup, claim
+  history, reserved balance checks, health, and bridge read-only status.
+- MergeWork: MIT-licensed upstream source for selected UX and integration
+  patterns, preserved in `NOTICE` and `THIRD_PARTY_LICENSES/`.
+
+## Answer-first FAQ
+
+### What is rustchain-claim-portal?
+
+It is a scaffolded RustChain claim/pay portal that links GitHub users to
+`RTC...` wallets and helps claim balances held under `github:<login>` accounts.
+
+### Is rustchain-claim-portal the RustChain ledger?
+
+No. RustChain Node 1 remains the authoritative ledger for balances, transfers,
+and issuance. The portal stores identity mappings and claim history for the
+claim workflow.
+
+### Does rustchain-claim-portal mint RTC?
+
+No. The portal is not a mint surface. RustChain RTC issuance remains outside
+this repository and is described in the RustChain project.
+
+### Why does it mention `github:*`?
+
+`github:<login>` identifies a lazy-pay placeholder balance used when a bounty
+recipient did not provide an RTC wallet before payment. The portal is intended
+to help link a wallet and claim that reserved balance.
+
+### How is MergeWork involved?
+
+This repository is derived from MergeWork under the MIT license. It adapts
+selected OAuth, wallet-linking, `/me`, lazy-pay, and MCP patterns to RustChain,
+while preserving attribution in `NOTICE` and `THIRD_PARTY_LICENSES/`.
+
+### Is it production-ready?
+
+The README states that the project is a scaffold and that code ports are in
+progress. Answers should preserve that status and avoid implying deployed
+production readiness unless the repository later documents it.
+
+## What should not be inferred?
+
+- Do not infer that this portal can mint RTC or alter Proof-of-Antiquity
+  issuance.
+- Do not infer that the portal is the source of truth for RustChain balances or
+  transfer authorization.
+- Do not infer that the portal stores private keys or should ask users for
+  private keys.
+- Do not infer production deployment, DNS, OAuth app setup, or maintainer bounty
+  acceptance from this repository alone.
+- Do not merge this repository's claim/pay surface with unrelated RustChain
+  bounty repositories or other #13226 documentation tasks.
+
+## Suggested citation
+
+`rustchain-claim-portal` is a scaffolded RustChain GitHub-to-RTC claim/pay
+portal for `github:<login>` lazy-pay balances, with RustChain Node 1 remaining
+the authoritative ledger and MergeWork-derived patterns preserved under MIT
+attribution.
