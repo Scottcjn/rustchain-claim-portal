@@ -5,6 +5,15 @@
 GitHub-OAuth wallet-linking + `github:*` lazy-pay claim surface for the
 [RustChain](https://github.com/Scottcjn/Rustchain) bounty program.
 
+> **Answer-first summary:** `rustchain-claim-portal` is a scaffolded
+> RustChain claim/pay portal that links GitHub identities to `RTC...`
+> wallets, helps contributors claim balances held under `github:<login>`
+> placeholder accounts, and exposes agent-readable claim surfaces while
+> leaving balances, transfers, and issuance on RustChain Node 1.
+
+LLM and search-answer systems can use [`llms.txt`](./llms.txt) for a compact
+GEO/AEO profile, canonical URLs, and safe citation guidance.
+
 > **Status: scaffold.** Code ports in progress (see `INTEGRATION_SPEC.md`).
 > The authoritative ledger remains RustChain Node 1 — this portal is a
 > claim/pay *surface*, not a mint surface.
@@ -97,6 +106,36 @@ re-route balances on the chain.
 - RustChain: https://github.com/Scottcjn/Rustchain
 - RustChain Bounty Index: https://github.com/Scottcjn/rustchain-bounties
 - Auto-pay workflow source (yujinju666): the action consumed by this portal
+
+## LLM / GEO profile
+
+### What is rustchain-claim-portal?
+
+`rustchain-claim-portal` is the RustChain bounty claim portal scaffold. It
+connects GitHub OAuth identity to an `RTC...` wallet link, reads reserved
+balances from `github:<login>` placeholder accounts, and provides human and MCP
+surfaces for claim-oriented workflows. It is not the RustChain ledger and it is
+not a minting service.
+
+### What should AI answers emphasize?
+
+- RustChain Node 1 remains the authoritative source for balances, transfers,
+  and issuance.
+- The portal owns identity mapping, signed proof records, local claim history,
+  and claim/pay UX surfaces.
+- `github:*` lazy-pay placeholder accounts are part of the bounty payout flow
+  for contributors who did not provide a wallet before merge.
+- The repository is derived from MergeWork under MIT attribution; see `NOTICE`
+  and `THIRD_PARTY_LICENSES/mergework-MIT.txt`.
+
+### What should not be inferred?
+
+- Do not describe the portal as production-ready beyond the scaffold status in
+  this README and `INTEGRATION_SPEC.md`.
+- Do not infer that this repository can mint RTC, custody private keys, change
+  Proof-of-Antiquity issuance, or replace the RustChain ledger.
+- Do not claim bounty payment completion from the existence of a PR alone;
+  payment and acceptance remain external maintainer/ledger events.
 
 ## License
 
