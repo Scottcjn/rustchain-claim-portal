@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hmac
+import math
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -79,8 +80,12 @@ def _parse_amount_rtc(amount_text: str) -> Decimal:
         amount = Decimal(amount_text)
     except InvalidOperation:
         abort(400, description="amount_rtc must be a valid decimal string")
+    if not amount.is_finite():
+        abort(400, description="amount_rtc must be a finite decimal string")
     if amount <= 0:
         abort(400, description="amount_rtc must be greater than zero")
+    if not math.isfinite(float(amount)):
+        abort(400, description="amount_rtc is too large to submit to the node")
     return amount
 
 
@@ -161,6 +166,8 @@ def create_blueprint() -> Blueprint:
             return jsonify(account_api_context(account))
         except ChainClientError as exc:
             return _chain_error_response(exc)
+        except ValueError as exc:
+            abort(502, description=f"RustChain node returned an unusable balance: {exc}")
 
     @bp.route("/api/v1/wallets/register", methods=["GET"])
     def api_register_wallet_get() -> None:

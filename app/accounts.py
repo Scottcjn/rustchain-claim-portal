@@ -6,6 +6,7 @@
 # Node 1 /wallet/transfer. No mint authority resides in this portal.
 from __future__ import annotations
 
+import math
 import re
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -65,6 +66,8 @@ def format_rtc(value: Any) -> str:
         amount = Decimal(str(value))
     except (InvalidOperation, ValueError, TypeError) as exc:
         raise ValueError("invalid RTC amount") from exc
+    if not amount.is_finite():
+        raise ValueError("invalid RTC amount")
     normalized = amount.normalize()
     text = format(normalized, "f")
     if "." in text:
@@ -75,7 +78,13 @@ def format_rtc(value: Any) -> str:
 def balance_amount_from_response(payload: dict[str, Any]) -> Decimal:
     for key in ("balance_rtc", "balance", "amount_rtc"):
         if key in payload:
-            return Decimal(str(payload[key]))
+            try:
+                amount = Decimal(str(payload[key]))
+            except InvalidOperation as exc:
+                raise ValueError("balance response carried an invalid amount") from exc
+            if not amount.is_finite() or not math.isfinite(float(amount)):
+                raise ValueError("balance response carried a non-finite amount")
+            return amount
     raise ValueError("balance response missing balance field")
 
 
