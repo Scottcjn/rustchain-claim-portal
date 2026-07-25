@@ -61,8 +61,8 @@ this design explicitly does **not** propose any of the following in v1:
 
 | Constraint | RustChain side | MergeWork side |
 |---|---|---|
-| **Supply cap** | 8,192,000 RTC (consensus-enforced) | 100,000,000 MRWK (genesis, ledger-conserved per @ramimbo's reply on `mergework#571`) |
-| **Issuance rule** | Mined: 94% block rewards / 6% premine across community / dev / foundation; halving 1.5 → 0.75 → 0.375 RTC per epoch every 2 years | Minted on labeled, merged work inside MergeWork's bounty workflow |
+| **Supply cap** | 8,388,608 RTC (2^23, consensus-enforced; `TOTAL_SUPPLY_RTC` in node source, RIP-0004) | 100,000,000 MRWK (genesis, ledger-conserved per @ramimbo's reply on `mergework#571`) |
+| **Issuance rule** | Mined: 94% block rewards / 6% premine in four equal 1.5% founder buckets (founders, dev fund, team bounty, community); fixed 1.5 RTC per epoch, no halving (RIP-0004) | Minted on labeled, merged work inside MergeWork's bounty workflow |
 | **Issuance gate** | Hardware fingerprint + antiquity multiplier + Proof-of-Antiquity attestation | Maintainer signature on bounty labels |
 | **Public controls** | RIP-200 / RIP-PoA consensus rules, plus admin-key gated `/wallet/transfer` with 24h void window | Maintainer-driven today; treasury-action public controls in scope of `mergework#458` |
 | **Identity primitive** | `github:<login>` lazy-pay (also used on RustChain) | `github:<login>` lazy-pay (native primitive) |
